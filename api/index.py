@@ -44,7 +44,7 @@ def get_db():
 
 init_db()
 
-ADMIN_KEY = os.environ.get('ADMIN_KEY', 'hoho_admin_2024')
+ADMIN_KEY = os.environ.get('ADMIN_KEY', 'LuanOri04')
 
 def generate_key():
     random_part = ''.join(random.choices(string.ascii_uppercase + string.digits, k=5))
@@ -58,7 +58,6 @@ def get_key():
         conn = get_db()
         c = conn.cursor()
         
-        # Kiểm tra key còn hạn cho HWID này
         c.execute('''SELECT key FROM keys 
                      WHERE hwid = ? AND expires_at > ? 
                      ORDER BY created_at DESC LIMIT 1''', 
@@ -69,7 +68,6 @@ def get_key():
             conn.close()
             return existing[0]
         
-        # Tạo key mới
         key_id = generate_key()
         
         while True:
@@ -93,7 +91,6 @@ def get_key():
         print(f"Error: {e}")
         return "ERROR"
 
-# ===== SỬA CHECK KEY - CHO PHÉP CHECK KEY MÀ KHÔNG CẦN HWID =====
 @app.route('/api/check_key', methods=['GET', 'POST', 'OPTIONS'])
 def check_key():
     if request.method == 'OPTIONS':
@@ -120,57 +117,25 @@ def check_key():
         conn = get_db()
         c = conn.cursor()
         
-        # Kiểm tra key tồn tại
         c.execute('SELECT * FROM keys WHERE key = ?', (key,))
         key_data = c.fetchone()
         
-        # Nếu key không tồn tại, tạo key mới
         if not key_data:
-            # Tạo key mới cho HWID này
-            new_key = generate_key()
-            created_at = int(time.time())
-            expires_at = created_at + (24 * 3600)
-            
-            c.execute('INSERT INTO keys (key, hwid, created_at, expires_at, note) VALUES (?, ?, ?, ?, ?)',
-                      (new_key, hwid, created_at, expires_at, 'Auto-generated'))
-            
-            conn.commit()
             conn.close()
-            
             return jsonify({
-                'code': 'KEY_VALID',
-                'message': 'New key generated',
-                'data': {
-                    'total_executions': 0,
-                    'note': 'Auto-generated',
-                    'new_key': new_key  # Trả về key mới cho script
-                }
-            })
+                'code': 'INVALID_KEY',
+                'message': 'Invalid key'
+            }), 400
         
-        # Kiểm tra hết hạn
         if key_data[3] < time.time():
-            # Key hết hạn, tạo key mới
-            new_key = generate_key()
-            created_at = int(time.time())
-            expires_at = created_at + (24 * 3600)
-            
-            c.execute('INSERT INTO keys (key, hwid, created_at, expires_at, note) VALUES (?, ?, ?, ?, ?)',
-                      (new_key, hwid, created_at, expires_at, 'New key after expiry'))
-            
-            conn.commit()
             conn.close()
-            
             return jsonify({
                 'code': 'KEY_EXPIRED',
-                'message': 'Key expired, new key generated',
-                'data': {
-                    'new_key': new_key
-                }
-            }), 200
+                'message': 'Key has expired'
+            }), 400
         
         db_hwid = key_data[1]
         
-        # Nếu key chưa gán HWID, gán nó
         if db_hwid == 'unknown' or db_hwid == '':
             c.execute('UPDATE keys SET hwid = ? WHERE key = ?', (hwid, key))
             conn.commit()
@@ -184,14 +149,12 @@ def check_key():
                 }
             })
         
-        # Nếu HWID khác, trả về lỗi nhưng kèm theo key mới
         if db_hwid != hwid:
             # Tạo key mới cho HWID này
             new_key = generate_key()
             created_at = int(time.time())
             expires_at = created_at + (24 * 3600)
             
-            # Kiểm tra key mới không trùng
             while True:
                 c.execute('SELECT key FROM keys WHERE key = ?', (new_key,))
                 if not c.fetchone():
@@ -208,11 +171,10 @@ def check_key():
                 'code': 'KEY_HWID_LOCKED',
                 'message': 'Key locked to another HWID, new key generated',
                 'data': {
-                    'new_key': new_key  # Trả về key mới
+                    'new_key': new_key
                 }
             })
         
-        # Key hợp lệ, cập nhật số lần thực thi
         c.execute('UPDATE keys SET total_executions = total_executions + 1 WHERE key = ?', (key,))
         conn.commit()
         conn.close()
@@ -232,7 +194,6 @@ def check_key():
             'code': 'SERVER_ERROR',
             'message': str(e)
         }), 500
-# ===== KẾT THÚC =====
 
 @app.route('/api/freeresethwid', methods=['POST', 'GET', 'OPTIONS'])
 def free_reset_hwid():
@@ -377,15 +338,7 @@ def home():
         'name': 'HoHo Key System API',
         'version': '1.0.0',
         'key_format': 'KLINUX-LUANORI-XXXXX',
-        'status': 'running',
-        'endpoints': {
-            '/api/getkey?hwid=xxx': 'GET - Get free key',
-            '/api/check_key?key=xxx&hwid=xxx': 'GET - Check key',
-            '/api/check_key': 'POST - Check key (JSON)',
-            '/api/freeresethwid?hwid=xxx&key=xxx': 'GET - Reset HWID',
-            '/api/list_keys': 'GET - List all keys (admin)',
-            '/api/delete_key': 'POST - Delete key (admin)'
-        }
+        'status': 'running'
     })
 
 def handler(event, context):
