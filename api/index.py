@@ -44,7 +44,7 @@ def get_db():
 
 init_db()
 
-ADMIN_KEY = os.environ.get('ADMIN_KEY', 'LuanOri04')
+ADMIN_KEY = os.environ.get('ADMIN_KEY', 'hoho_admin_2024')
 
 def generate_key():
     random_part = ''.join(random.choices(string.ascii_uppercase + string.digits, k=5))
@@ -120,22 +120,63 @@ def check_key():
         c.execute('SELECT * FROM keys WHERE key = ?', (key,))
         key_data = c.fetchone()
         
+        # Nếu key không tồn tại, tạo key mới
         if not key_data:
+            new_key = generate_key()
+            created_at = int(time.time())
+            expires_at = created_at + (24 * 3600)
+            
+            while True:
+                c.execute('SELECT key FROM keys WHERE key = ?', (new_key,))
+                if not c.fetchone():
+                    break
+                new_key = generate_key()
+            
+            c.execute('INSERT INTO keys (key, hwid, created_at, expires_at, note) VALUES (?, ?, ?, ?, ?)',
+                      (new_key, hwid, created_at, expires_at, 'Auto-generated'))
+            
+            conn.commit()
             conn.close()
+            
             return jsonify({
-                'code': 'INVALID_KEY',
-                'message': 'Invalid key'
-            }), 400
+                'code': 'KEY_VALID',
+                'message': 'New key generated',
+                'data': {
+                    'total_executions': 0,
+                    'note': 'Auto-generated',
+                    'new_key': new_key
+                }
+            })
         
+        # Kiểm tra hết hạn
         if key_data[3] < time.time():
+            new_key = generate_key()
+            created_at = int(time.time())
+            expires_at = created_at + (24 * 3600)
+            
+            while True:
+                c.execute('SELECT key FROM keys WHERE key = ?', (new_key,))
+                if not c.fetchone():
+                    break
+                new_key = generate_key()
+            
+            c.execute('INSERT INTO keys (key, hwid, created_at, expires_at, note) VALUES (?, ?, ?, ?, ?)',
+                      (new_key, hwid, created_at, expires_at, 'New key after expiry'))
+            
+            conn.commit()
             conn.close()
+            
             return jsonify({
                 'code': 'KEY_EXPIRED',
-                'message': 'Key has expired'
-            }), 400
+                'message': 'Key expired, new key generated',
+                'data': {
+                    'new_key': new_key
+                }
+            })
         
         db_hwid = key_data[1]
         
+        # Nếu key chưa gán HWID, gán nó
         if db_hwid == 'unknown' or db_hwid == '':
             c.execute('UPDATE keys SET hwid = ? WHERE key = ?', (hwid, key))
             conn.commit()
@@ -149,8 +190,8 @@ def check_key():
                 }
             })
         
+        # Nếu HWID khác, tạo key mới
         if db_hwid != hwid:
-            # Tạo key mới cho HWID này
             new_key = generate_key()
             created_at = int(time.time())
             expires_at = created_at + (24 * 3600)
@@ -175,6 +216,7 @@ def check_key():
                 }
             })
         
+        # Key hợp lệ, cập nhật số lần thực thi
         c.execute('UPDATE keys SET total_executions = total_executions + 1 WHERE key = ?', (key,))
         conn.commit()
         conn.close()
